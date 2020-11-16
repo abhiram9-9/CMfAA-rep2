@@ -5,6 +5,7 @@
         convert_type='vtuBCCmpi'
         autoconvert=.true.
         nwauxio=2
+	restart_from_file="bw_2d0350.dat"
  /
 
  &savelist
@@ -15,13 +16,17 @@
  /
 
  &stoplist
-        time_max=1000d0
+
+        time_max=1040d0
 /
 
  &methodlist
         time_stepper=  'threestep'
         flux_scheme=    20*'hllc'
         limiter= 20*'koren'
+        small_values_method= 'average'
+ !       fix_small_values=.true.
+ !       check_small_values=.false.
  /
 
  &boundlist
@@ -39,20 +44,20 @@
         refine_threshold=20*0.2d0
         block_nx1=16
         block_nx2=16
-        domain_nx1=48
-        domain_nx2=48
+        domain_nx1=208
+        domain_nx2=208
         iprob=1 
-        xprobmin1=-150.d0
-        xprobmax1=150.d0
-        xprobmin2=-150.d0
-        xprobmax2=150.d0
+        xprobmin1=-200.d0
+        xprobmax1=200.d0
+        xprobmin2=-200.d0
+        xprobmax2=200.d0
  /
 
  &paramlist
         typecourant='maxsum'
-        courantpar=0.5d0
+        courantpar=0.1d0
  /
 
  &hd_list
-      hd_radiative_cooling=.true.
+      hd_radiative_cooling=.false.
 / 

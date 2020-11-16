@@ -34,7 +34,7 @@ contains
  subroutine initglobaldata_usr()
     use mod_global_parameters
 
-  hd_gamma=5.0d0/3.0d0
+  hd_gamma=1.05d0!5.0d0/3.0d0
    rhoISM= (10.0d0)**(-22.5)
    TISM  = 1.21d2/unit_temperature
    Rstar=8*unit_length
@@ -48,15 +48,15 @@ contains
     time_convert_factor = unit_time
     Tscale = (1.0D0/(w_convert_factor(mom(1))**2.0d0)) * kb_cgs/mp_cgs
     Lscale =  w_convert_factor(rho_)*time_convert_factor/((mp_cgs*w_convert_factor(mom(1)))**2.0)
-   Edot = 10d-9 /63011.4787*time_convert_factor /(const_years*unit_pressure) 
-   Mdot  = 1.0d-6*const_msun/const_years
+   Edot = 1d-9 /63011.4787*time_convert_factor /(const_years*unit_pressure) 
+   Mdot  = 1.0d-6*const_msun/const_years /((4/3D0)*dpi*(Rstar)**3 )/ w_convert_factor(rho_)*time_convert_factor
   if(mype == 0) then
        write(*,1004) 'time_convert_factor:     ', time_convert_factor
        write(*,1004) 'length_convert_factor:   ', length_convert_factor
        write(*,1004) 'w_convert_factor(mom(1)):', w_convert_factor(mom(1))
        write(*,1004) 'w_convert_factor(rho_):  ', w_convert_factor(rho_)
        write(*,1004) 'w_convert_factor(p_):    ', w_convert_factor(p_)
-       write(*,1004) ' mdot (g/s) : ' , Mdot
+!      write(*,1004) ' mdot (g/s) : ' , Mdot
        write(*,1004) 'edot (erg/cm^3s) ', edot
        write(*,*)
        write(*,1004) 'accel                    ',  &
@@ -75,6 +75,7 @@ Rstar = Rstar / length_convert_factor
       print *, 'unit_velocity = ', unit_velocity
       print *, 'unit_time = ', unit_time
       print *, 'unit_temperature = ', unit_temperature
+      print *, 'ONE MYEAR @ t=131 OR 3.15e13 SECONDS' 
   end if
 
 1002 format('Temperature unit: ', 1x1pe12.5)
@@ -124,26 +125,28 @@ Rstar = Rstar / length_convert_factor
     double precision, intent(in) :: x(ixI^S,1:ndim), wCT(ixI^S,1:nw)
     double precision, intent(inout) :: w(ixI^S,1:nw)
 
-    double precision :: rad(ixI^S), cosTh(ixI^S), sinTh(ixI^S)
+    double precision :: rad(ixI^S), cosTh(ixI^S), sinTh(ixI^S), rad2(ixI^S)
 
     ! use of special source as an internal boundary....
 
     rad(ixO^S) = dsqrt(x(ixO^S,1)**2 + x(ixO^S,2)**2)
-    cosTh(ixO^S) = x(ixO^S,2)/rad(ixO^S)
-    sinTh(ixO^S) = x(ixO^S,1)/rad(ixO^S)
+    rad2(ixO^S) = dsqrt((x(ixO^S,1)+25)**2 + (x(ixO^S,2)+10)**2)
 
+!    cosTh(ixO^S) = x(ixO^S,2)/rad(ixO^S)
+!    sinTh(ixO^S) = x(ixO^S,1)/rad(ixO^S)
+    
     where ( rad(ixO^S)< Rstar )
-     w(ixO^S,rho_)  = w(ixO^S,rho_)+ qdt*Mdot /((4/3D0)*dpi*(Rstar*length_convert_factor)**3 ) &
-                      / w_convert_factor(rho_)*time_convert_factor*mflow1(qt)
-     
-     w(ixO^S,e_)  = w(ixO^S,e_)+ qdt*Edot*eflow1(qt) ! seems correct but temperature gets absurdly high 
+    w(ixO^S,rho_) =  w(ixO^S,rho_)+ qdt*Mdot*mflow1(qt)!      
+    w(ixO^S,e_)  = w(ixO^S,e_)+ qdt*Edot*eflow1(qt)  
 
-
-   !   w(ixO^S,mom(1)) = (vwind /w_convert_factor(mom(1))) *sinTh(ixO^S)*w(ixO^S,rho_)
-   !   w(ixO^S,mom(2)) = (vwind /w_convert_factor(mom(1))) *cosTh(ixO^S)*w(ixO^S,rho_)
-   !   w(ixO^S,e_)    = w(ixO^S,rho_)*Twind*Tscale/(hd_gamma-one)+ &
-   !        half*(w(ixO^S,mom(1))**2.0d0+w(ixO^S,mom(2))**2.0d0)/w(ixO^S,rho_)
     end where
+    
+    where ( rad2(ixO^S)< Rstar )
+    w(ixO^S,rho_) =  w(ixO^S,rho_)+ qdt*Mdot*mflow2(qt)!      
+    w(ixO^S,e_)  = w(ixO^S,e_)+ qdt*Edot*eflow2(qt)  
+
+    end where
+
 
   end subroutine special_source
 
@@ -162,7 +165,7 @@ Rstar = Rstar / length_convert_factor
     double precision                   :: normconv(0:nw+nwauxio)
 
     double precision                   :: tmp(ixI^S) 
-    w(ixO^S,nw+1)= w(ixO^S,e_)*unit_pressure*10d5
+    w(ixO^S,nw+1)= w(ixO^S,e_)*unit_pressure*1d5
    ! write(*,*) ' edens = ..... ', w(8,8,nw+1) 
    ! read(*,*)
 
@@ -182,12 +185,13 @@ Rstar = Rstar / length_convert_factor
   double precision function mflow1(t)
   implicit none
   double precision :: t
-  if (t*time_convert_factor/(const_years*10d6) .lt. 3.85) then
-  mflow1=15.5/3.85d0
-  else if  (t*time_convert_factor/(const_years*10d6) .lt. 4.15) then
-  mflow1=28.5/0.55d0 
-  else if  (t*time_convert_factor/(const_years*10d6) .lt. 4.55) then
-  mflow1= 9/0.15d0
+  if (t*time_convert_factor/(const_years*1d6) .lt. 3.85) then
+  mflow1= 4.026d0 !15.5/3.85d0
+ ! write(*,*) 't = ' ,t*time_convert_factor/(const_years*1d6),t, t*time_convert_factor 
+  else if  (t*time_convert_factor/(const_years*1d6) .lt. 4.15) then
+  mflow1= 51.82d0 !28.5/0.55d0 
+  else if  (t*time_convert_factor/(const_years*1d6) .lt. 4.55) then
+  mflow1= 60d0 !9/0.15d0
   else
   mflow1= 0d0 
   end if 
@@ -196,16 +200,44 @@ Rstar = Rstar / length_convert_factor
   double precision function eflow1(t)
   implicit none
   double precision :: t
-  if (t*time_convert_factor/(const_years*10d6) .lt. 4.15) then
-  eflow1=1.45/4.15d0
-  else if  (t*time_convert_factor/(const_years*10d6) .lt. 4.4) then
-  eflow1=0.55/0.35d0 
-  else if  (t*time_convert_factor/(const_years*10d6) .lt. 4.55) then
-  eflow1= 11/0.15d0
+  if (t*time_convert_factor/(const_years*1d6) .lt. 4.15) then
+  eflow1= 0.349d0 !1.45/4.15d0
+  else if  (t*time_convert_factor/(const_years*1d6) .lt. 4.4) then
+  eflow1= 1.57d0 !0.55/0.35d0 
+  else if  (t*time_convert_factor/(const_years*1d6) .lt. 4.55) then
+  eflow1= 7.333d0 !1.1/0.15d0
   else
   eflow1=0d0 
   end if 
   end function eflow1
+
+  double precision function mflow2(t)
+  implicit none
+  double precision :: t
+  if (t*time_convert_factor/(const_years*1d6) .lt. 6.4) then
+  mflow2=0.64625d0 !4.1/6.4d0
+  else if  (t*time_convert_factor/(const_years*1d6) .lt. 6.8) then
+  mflow2=24.75d0 
+  else if  (t*time_convert_factor/(const_years*1d6) .lt. 7) then
+  mflow2= 45d0
+  else
+  mflow2= 0d0 
+  end if 
+  end function mflow2
+ 
+  double precision function eflow2(t)
+  implicit none
+  double precision :: t
+  if (t*time_convert_factor/(const_years*1d6) .lt. 6.5) then
+  eflow2=0.0308d0
+  else if  (t*time_convert_factor/(const_years*1d6) .lt. 6.9) then
+  eflow2=0.3333d0 
+  else if  (t*time_convert_factor/(const_years*1d6) .lt. 7) then
+  eflow2= 5.4d0
+  else
+  eflow2=0d0 
+  end if 
+  end function eflow2
 
 
 end module mod_usr
