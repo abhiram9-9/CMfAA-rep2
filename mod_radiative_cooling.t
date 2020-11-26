@@ -61,6 +61,7 @@ module mod_radiative_cooling
   integer, private, protected              :: e_
   !> Index of the internal energy density
   integer, private, protected              :: eaux_
+  integer, private, protected              :: Tcoff_
 
   !> The adiabatic index
   double precision, private :: rc_gamma
@@ -80,7 +81,7 @@ module mod_radiative_cooling
 
   integer          :: n_Hildner, n_FM, n_RP, n_Klimchuk, n_Slyz
 
-  double precision :: t_Hildner(1:6), t_FM(1:5), t_RP(1:10), t_Klimchuk(1:8), t_Slyz(1:12)
+  double precision :: t_Hildner(1:6), t_FM(1:5), t_RP(1:10), t_Klimchuk(1:8),  t_Slyz(1:12)
 
   double precision :: x_Hildner(1:5), x_FM(1:4), x_RP(1:9), x_Klimchuk(1:7), x_Slyz(1:11)
 
@@ -131,8 +132,8 @@ module mod_radiative_cooling
    -25.38,   -29.2999429        /
 
   data   a_Slyz /0, 2, 1.5, 2.867, 1.6, -0.2, -3, -0.22, -3, 0.33, 0.5  /
-
-
+  
+  
   ! Interpolatable tables
   integer          :: n_DM      , n_MB      , n_MLcosmol &
                     , n_MLwc    , n_MLsolar1, n_SPEX     &
@@ -787,9 +788,11 @@ module mod_radiative_cooling
       nwx = nwx + 1
       e_     = nwx          ! energy density
       eaux_  = iw_eaux
+
+      Tcoff_ = nwflux+1
       
       ! Checks if coolcurve is a piecewise power law (PPL)
-      PPL_curves = [Character(len=65) :: 'Hildner','FM', 'RP', 'Klimchuk', 'Slyz']
+      PPL_curves = [Character(len=65) :: 'Hildner','FM', 'RP', 'Klimchuk','Slyz']
       do i=1,size(PPL_curves)
          if (PPL_curves(i)==coolcurve) then
             isPPL = .true.
@@ -858,7 +861,7 @@ module mod_radiative_cooling
             a_PPL(1:n_PPL) = a_Klimchuk(1:n_Klimchuk)
 
             l_PPL(1:n_PPL) = 10.d0**x_Klimchuk(1:n_Klimchuk) * (10.d0**t_PPL(1:n_PPL))**a_PPL(1:n_PPL)  
-         
+
          case('Slyz')
             if(mype==0) print *,'Use Slyz piecewise power law'
              
@@ -872,6 +875,7 @@ module mod_radiative_cooling
 
             l_PPL(1:n_PPL) = 10.d0**x_Slyz(1:n_Slyz) * &
                (10.d0**t_PPL(1:n_PPL))**a_PPL(1:n_PPL)  
+
 
          case default
             call mpistop("This piecewise power law is unknown")
@@ -1487,7 +1491,7 @@ module mod_radiative_cooling
       double precision, intent(inout) :: w(ixI^S,1:nw)
       
       double precision :: L1,Tlocal1, ptherm(ixI^S),pnew(ixI^S)
-      double precision :: plocal, rholocal
+      double precision :: plocal, rholocal, ttofflocal
       double precision :: emin, Lmax
       
       integer :: ix^D
@@ -1499,6 +1503,14 @@ module mod_radiative_cooling
       {do ix^DB = ixO^LIM^DB\}
          plocal   = ptherm(ix^D)
          rholocal = wCT(ix^D,rho_)
+         if(phys_trac) then
+         {^IFONED
+           ttofflocal=block%special_values(1)
+         }
+         {^NOONED
+           ttofflocal=w(ix^D,Tcoff_)
+         }
+         end if
          emin     = rholocal*tlow/(rc_gamma-1.d0)
          Lmax            = max(zero,pnew(ix^D)/(rc_gamma-1.d0)-emin)/qdt
          !  Tlocal = P/rho
@@ -1515,10 +1527,8 @@ module mod_radiative_cooling
          else if( Tlocal1>=tcoolmax )then
             call calc_l_extended(Tlocal1, L1)
             L1         = L1*(rholocal**2)
-            if(trac) then
-              if(Tlocal1 .lt. block%special_values(1)) then
-                L1=L1*sqrt((Tlocal1/block%special_values(1))**5)
-              end if
+            if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
+              L1=L1*sqrt((Tlocal1/ttofflocal)**5)
             end if
             L1         = min(L1,Lmax)
             w(ix^D,e_) = w(ix^D,e_)-L1*qdt
@@ -1526,10 +1536,8 @@ module mod_radiative_cooling
          else  
             call findL(Tlocal1,L1)
             L1         = L1*(rholocal**2)
-            if(trac) then
-              if(Tlocal1 .lt. block%special_values(1)) then
-                L1=L1*sqrt((Tlocal1/block%special_values(1))**5)
-              end if
+            if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
+              L1=L1*sqrt((Tlocal1/ttofflocal)**5)
             end if
             L1         = min(L1,Lmax)
             w(ix^D,e_) = w(ix^D,e_)-L1*qdt
@@ -1560,7 +1568,7 @@ module mod_radiative_cooling
       integer :: idt,ndtstep
       
       double precision :: L1,Tlocal1,ptherm(ixI^S),pnew(ixI^S)
-      double precision :: plocal, rholocal
+      double precision :: plocal, rholocal, ttofflocal
       double precision :: emin, Lmax
       
       integer :: ix^D
@@ -1576,6 +1584,14 @@ module mod_radiative_cooling
          etherm   = plocal/(rc_gamma-1.d0)
       
          rholocal = wCT(ix^D,rho_)
+         if(phys_trac) then
+         {^IFONED
+           ttofflocal=block%special_values(1)
+         }
+         {^NOONED
+           ttofflocal=w(ix^D,Tcoff_)
+         }
+         end if
          emin     = rholocal*tlow/(rc_gamma-1.d0)
          Lmax            = max(zero,(pnew(ix^D)/(rc_gamma-1.d0))-emin)/qdt
          !  Tlocal = P/rho
@@ -1592,20 +1608,16 @@ module mod_radiative_cooling
          else if( Tlocal1>=tcoolmax )then
             call calc_l_extended(Tlocal1, Ltest)
             Ltest = L1*(rholocal**2)
-            if(trac) then
-              if(Tlocal1 .lt. block%special_values(1)) then
-                Ltest=Ltest*sqrt((Tlocal1/block%special_values(1))**5)
-              end if
+            if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
+              Ltest=Ltest*sqrt((Tlocal1/ttofflocal)**5)
             end if
             Ltest = min(L1,Lmax)
             if( dtmax>cfrac*etherm/Ltest) dtmax = cfrac*etherm/Ltest
          else  
             call findL(Tlocal1,Ltest)
             Ltest = Ltest*(rholocal**2)
-            if(trac) then
-              if(Tlocal1 .lt. block%special_values(1)) then
-                Ltest=Ltest*sqrt((Tlocal1/block%special_values(1))**5)
-              end if
+            if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
+              Ltest=Ltest*sqrt((Tlocal1/ttofflocal)**5)
             end if
             Ltest = min(Ltest,Lmax)
             if( dtmax>cfrac*etherm/Ltest) dtmax = cfrac*etherm/Ltest
@@ -1632,19 +1644,15 @@ module mod_radiative_cooling
             else if( Tlocal1>=tcoolmax )then
               call calc_l_extended(Tlocal1, L1)
               L1 = L1*(rholocal**2)
-              if(trac) then
-                if(Tlocal1 .lt. block%special_values(1)) then
-                  L1=L1*sqrt((Tlocal1/block%special_values(1))**5)
-                end if
+              if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
+                L1=L1*sqrt((Tlocal1/ttofflocal)**5)
               end if
               L1 = min(L1,Lmax)
             else  
               call findL(Tlocal1,L1)
               L1 = L1*(rholocal**2)
-              if(trac) then
-                if(Tlocal1 .lt. block%special_values(1)) then
-                  L1=L1*sqrt((Tlocal1/block%special_values(1))**5)
-                end if
+              if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
+                L1=L1*sqrt((Tlocal1/ttofflocal)**5)
               end if
               L1 = min(L1,Lmax)
             end if
@@ -1673,7 +1681,7 @@ module mod_radiative_cooling
       double precision :: L1,L2,Tlocal1, Tlocal2
       double precision :: etemp
       
-      double precision :: plocal, rholocal
+      double precision :: plocal, rholocal, ttofflocal
       double precision :: emin, Lmax
       
       double precision :: ptherm(ixI^S),pnew(ixI^S)
@@ -1685,6 +1693,14 @@ module mod_radiative_cooling
       {do ix^DB = ixO^LIM^DB\}
          plocal   = ptherm(ix^D)
          rholocal = wCT(ix^D,rho_)
+         if(phys_trac) then
+         {^IFONED
+           ttofflocal=block%special_values(1)
+         }
+         {^NOONED
+           ttofflocal=w(ix^D,Tcoff_)
+         }
+         end if
          emin     = rholocal*tlow/(rc_gamma-1.d0)
          Lmax            = max(zero,pnew(ix^D)/(rc_gamma-1.d0)-emin)/qdt
          !  Tlocal = P/rho
@@ -1706,12 +1722,10 @@ module mod_radiative_cooling
               call findL(Tlocal1,L1)            
            end if                       
            L1      = L1*(rholocal**2)
-           etemp   = plocal/(rc_gamma-1.d0) - L1*qdt
-           if(trac) then
-             if(Tlocal1 .lt. block%special_values(1)) then
-               L1=L1*sqrt((Tlocal1/block%special_values(1))**5)
-             end if
+           if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
+             L1=L1*sqrt((Tlocal1/ttofflocal)**5)
            end if
+           etemp   = plocal/(rc_gamma-1.d0) - L1*qdt
            Tlocal2 = etemp*(rc_gamma-1.d0)/(rholocal)
            !
            !  Determine explicit cooling at new temperature
@@ -1724,10 +1738,8 @@ module mod_radiative_cooling
               call findL(Tlocal2,L2)
            end if
            L2  = L2*(rholocal**2)
-           if(trac) then
-             if(Tlocal2 .lt. block%special_values(1)) then
-               L2=L2*sqrt((Tlocal2/block%special_values(1))**5)
-             end if
+           if(phys_trac .and. Tlocal2 .lt. ttofflocal) then
+             L2=L2*sqrt((Tlocal2/ttofflocal)**5)
            end if
            w(ix^D,e_) = w(ix^D,e_) - min(half*(L1+L2),Lmax)*qdt
            if(phys_solve_eaux) &
@@ -1750,7 +1762,7 @@ module mod_radiative_cooling
       
       double precision :: Ltemp,Tlocal1,Tnew,f1,f2,ptherm(ixI^S), pnew(ixI^S)
       
-      double precision :: plocal, rholocal, elocal
+      double precision :: plocal, rholocal, elocal, ttofflocal
       double precision :: emin, Lmax, eold, enew, estep
       integer, parameter :: maxiter = 100
       double precision, parameter :: e_error = 1.0D-6
@@ -1764,6 +1776,14 @@ module mod_radiative_cooling
          plocal   = ptherm(ix^D)  
          elocal   = plocal/(rc_gamma-1.d0)
          rholocal = wCT(ix^D,rho_)
+         if(phys_trac) then
+         {^IFONED
+           ttofflocal=block%special_values(1)
+         }
+         {^NOONED
+           ttofflocal=w(ix^D,Tcoff_)
+         }
+         end if
          emin     = rholocal*tlow/(rc_gamma-1.d0)
          Lmax            = max(zero,pnew(ix^D)/(rc_gamma-1.d0)-emin)/qdt
          !  Tlocal = P/rho
@@ -1799,12 +1819,9 @@ module mod_radiative_cooling
       
              f1 = elocal -eold
              if( abs(half*f1/(elocal+eold)) < e_error  ) exit 
-             if(trac) then
-               if(Tnew .lt. block%special_values(1)) then
-                 Ltemp=Ltemp*sqrt((Tnew/block%special_values(1))**5)
-               end if
+             if(phys_trac .and. Tnew .lt. ttofflocal) then
+               Ltemp=Ltemp*sqrt((Tnew/ttofflocal)**5)
              end if
-      
              if(j==1) estep = max((elocal-emin)*half,smalldouble)
              if(f1*f2 < zero ) estep = -half*estep   
              f2 = f1
@@ -1829,7 +1846,7 @@ module mod_radiative_cooling
       
       double precision :: Y1, Y2
       double precision :: L1,Tlocal1, ptherm(ixI^S), Tlocal2, pnew(ixI^S)
-      double precision :: plocal, rholocal, invgam
+      double precision :: plocal, rholocal, invgam, ttofflocal
       double precision :: emin, Lmax, fact
       double precision :: de, emax
       
@@ -1846,8 +1863,15 @@ module mod_radiative_cooling
       {do ix^DB = ixO^LIM^DB\}
          plocal   = ptherm(ix^D)
          rholocal = wCT(ix^D,rho_)
+         if(phys_trac) then
+         {^IFONED
+           ttofflocal=block%special_values(1)
+         }
+         {^NOONED
+           ttofflocal=w(ix^D,Tcoff_)
+         }
+         end if
          emin     = w(ix^D,rho_)*tlow*invgam
-
          Lmax     = max(zero,(pnew(ix^D)*invgam-emin)/qdt)
          emax     = max(zero, pnew(ix^D)*invgam-emin)
 
@@ -1865,10 +1889,8 @@ module mod_radiative_cooling
          else if( Tlocal1>=tcoolmax )then
             call calc_l_extended(Tlocal1, L1)
             L1         = L1*(rholocal**2)
-            if(trac) then
-              if(Tlocal1 .lt. block%special_values(1)) then
-                L1=L1*sqrt((Tlocal1/block%special_values(1))**5)
-              end if
+            if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
+              L1=L1*sqrt((Tlocal1/ttofflocal)**5)
             end if
             L1         = min(L1,Lmax)
             w(ix^D,e_) = w(ix^D,e_)-L1*qdt
@@ -1883,10 +1905,8 @@ module mod_radiative_cooling
             else
               de = (Tlocal1-Tlocal2)*invgam*rholocal
             endif
-            if(trac) then
-              if(Tlocal1 .lt. block%special_values(1)) then
-                de=de*sqrt((Tlocal1/block%special_values(1))**5)
-              end if
+            if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
+              de=de*sqrt((Tlocal1/ttofflocal)**5)
             end if
             de          = min(de,emax)   
             w(ix^D,e_)  = w(ix^D,e_)-de
